@@ -61,42 +61,56 @@ class Groups:
 
         for guest_name, guest_meta in guests["guests"].items():
             # Create affinity grouping
-            # Use an affinity group if available for the guest
             if len(guest_meta["affinity_groups"]) > 0:
                 for affinity_group in guest_meta["affinity_groups"]:
                     group_name = affinity_group
                     logger.debug(f'Affinity group {affinity_group} for {guest_name} will be used.')
+
+                    if not groups["groups"]["affinity"].get(group_name, False):
+                        groups["groups"]["affinity"][group_name] = {}
+                        groups["groups"]["affinity"][group_name]["guests"] = []
+                        groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
+                        groups["groups"]["affinity"][group_name]["counter"] = 1
+                        groups["groups"]["affinity"][group_name]["cpu_total"] = guest_meta["cpu_total"]
+                        groups["groups"]["affinity"][group_name]["cpu_used"] = guest_meta["cpu_used"]
+                        groups["groups"]["affinity"][group_name]["memory_total"] = guest_meta["memory_total"]
+                        groups["groups"]["affinity"][group_name]["memory_used"] = guest_meta["cpu_used"]
+                        groups["groups"]["affinity"][group_name]["disk_total"] = guest_meta["disk_total"]
+                        groups["groups"]["affinity"][group_name]["disk_used"] = guest_meta["cpu_used"]
+                    else:
+                        groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
+                        groups["groups"]["affinity"][group_name]["counter"] += 1
+                        groups["groups"]["affinity"][group_name]["cpu_total"] += guest_meta["cpu_total"]
+                        groups["groups"]["affinity"][group_name]["cpu_used"] += guest_meta["cpu_used"]
+                        groups["groups"]["affinity"][group_name]["memory_total"] += guest_meta["memory_total"]
+                        groups["groups"]["affinity"][group_name]["memory_used"] += guest_meta["cpu_used"]
+                        groups["groups"]["affinity"][group_name]["disk_total"] += guest_meta["disk_total"]
+                        groups["groups"]["affinity"][group_name]["disk_used"] += guest_meta["cpu_used"]
             else:
-                # Generate a random uniq group name for the guest if
-                # the guest does not belong to any affinity group
                 random_group = Helper.get_uuid_string()
                 group_name = random_group
                 logger.debug(f'Random uniq group {random_group} for {guest_name} will be used.')
 
-            if not groups["groups"]["affinity"].get(group_name, False):
-                # Create group template with initial guest meta information
-                groups["groups"]["affinity"][group_name] = {}
-                groups["groups"]["affinity"][group_name]["guests"] = []
-                groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
-                groups["groups"]["affinity"][group_name]["counter"] = 1
-                # Create groups resource template by the guests resources
-                groups["groups"]["affinity"][group_name]["cpu_total"] = guest_meta["cpu_total"]
-                groups["groups"]["affinity"][group_name]["cpu_used"] = guest_meta["cpu_used"]
-                groups["groups"]["affinity"][group_name]["memory_total"] = guest_meta["memory_total"]
-                groups["groups"]["affinity"][group_name]["memory_used"] = guest_meta["cpu_used"]
-                groups["groups"]["affinity"][group_name]["disk_total"] = guest_meta["disk_total"]
-                groups["groups"]["affinity"][group_name]["disk_used"] = guest_meta["cpu_used"]
-            else:
-                # Update group templates by guest meta information
-                groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
-                groups["groups"]["affinity"][group_name]["counter"] += 1
-                # Update group resources by guest resources
-                groups["groups"]["affinity"][group_name]["cpu_total"] += guest_meta["cpu_total"]
-                groups["groups"]["affinity"][group_name]["cpu_used"] += guest_meta["cpu_used"]
-                groups["groups"]["affinity"][group_name]["memory_total"] += guest_meta["memory_total"]
-                groups["groups"]["affinity"][group_name]["memory_used"] += guest_meta["cpu_used"]
-                groups["groups"]["affinity"][group_name]["disk_total"] += guest_meta["disk_total"]
-                groups["groups"]["affinity"][group_name]["disk_used"] += guest_meta["cpu_used"]
+                if not groups["groups"]["affinity"].get(group_name, False):
+                    groups["groups"]["affinity"][group_name] = {}
+                    groups["groups"]["affinity"][group_name]["guests"] = []
+                    groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
+                    groups["groups"]["affinity"][group_name]["counter"] = 1
+                    groups["groups"]["affinity"][group_name]["cpu_total"] = guest_meta["cpu_total"]
+                    groups["groups"]["affinity"][group_name]["cpu_used"] = guest_meta["cpu_used"]
+                    groups["groups"]["affinity"][group_name]["memory_total"] = guest_meta["memory_total"]
+                    groups["groups"]["affinity"][group_name]["memory_used"] = guest_meta["cpu_used"]
+                    groups["groups"]["affinity"][group_name]["disk_total"] = guest_meta["disk_total"]
+                    groups["groups"]["affinity"][group_name]["disk_used"] = guest_meta["cpu_used"]
+                else:
+                    groups["groups"]["affinity"][group_name]["guests"].append(guest_name)
+                    groups["groups"]["affinity"][group_name]["counter"] += 1
+                    groups["groups"]["affinity"][group_name]["cpu_total"] += guest_meta["cpu_total"]
+                    groups["groups"]["affinity"][group_name]["cpu_used"] += guest_meta["cpu_used"]
+                    groups["groups"]["affinity"][group_name]["memory_total"] += guest_meta["memory_total"]
+                    groups["groups"]["affinity"][group_name]["memory_used"] += guest_meta["cpu_used"]
+                    groups["groups"]["affinity"][group_name]["disk_total"] += guest_meta["disk_total"]
+                    groups["groups"]["affinity"][group_name]["disk_used"] += guest_meta["cpu_used"]
 
             # Create anti-affinity grouping
             if len(guest_meta["anti_affinity_groups"]) > 0:

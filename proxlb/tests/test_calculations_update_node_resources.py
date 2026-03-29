@@ -9,7 +9,7 @@ __license__ = "GPL-3.0"
 
 
 import pytest
-
+import copy
 from models.calculations import Calculations
 
 
@@ -17,26 +17,24 @@ def test_min_usage_with_empty_nodes() -> None:
     """
     Test the case where there are no nodes available (empty nodes dict).
     """
-    method = "cpu"
-    mode = "avg"
     proxlb_data = {
         "nodes": {},
         "meta": {"balancing": {}},
     }  # Simulate empty data
 
-    proxlb_data_verify = proxlb_data.copy()
+    snapshot = copy.deepcopy(proxlb_data)
 
     Calculations.update_node_resources(proxlb_data)
 
-    assert proxlb_data == proxlb_data_verify, "Proxlb data should not be modified when no nodes are available."
+    assert (
+        proxlb_data == snapshot
+    ), "Proxlb data should not be modified when no nodes are available."
 
 
 def test_min_usage_with_no_suitable_nodes() -> None:
     """
     Test the case where there are nodes, but none are suitable for balancing.
     """
-    method = "cpu"
-    mode = "avg"
     proxlb_data = {
         "nodes": {
             "node1": {"name": "node1", "cpu_avg_percent": 100, "maintenance": True},
@@ -45,8 +43,10 @@ def test_min_usage_with_no_suitable_nodes() -> None:
         "meta": {"balancing": {}},
     }  # Simulate nodes all in maintenance
 
-    proxlb_data_verify = proxlb_data.copy()
+    snapshot = copy.deepcopy(proxlb_data)
 
     Calculations.update_node_resources(proxlb_data)
 
-    assert proxlb_data == proxlb_data_verify, "Proxlb data should not be modified when no suitable nodes are available."
+    assert (
+        proxlb_data == snapshot
+    ), "Proxlb data should not be modified when no suitable nodes are available."

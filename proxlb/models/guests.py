@@ -103,7 +103,18 @@ class Guests:
                     guests['guests'][guest['name']]['anti_affinity_groups'] = Tags.get_anti_affinity_groups(guests['guests'][guest['name']]['tags'], guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['ha_rules'], proxlb_config)
                     guests['guests'][guest['name']]['ignore'] = Tags.get_ignore(guests['guests'][guest['name']]['tags'])
                     guests['guests'][guest['name']]['node_relationships'] = Tags.get_node_relationships(guests['guests'][guest['name']]['tags'], nodes, guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['ha_rules'], proxlb_config)
-                    guests['guests'][guest['name']]['node_relationships_strict'] = Pools.get_pool_node_affinity_strictness(proxlb_config, guests['guests'][guest['name']]['pools'])
+                    guests['guests'][guest['name']]['node_relationships_strict'] = Pools.get_merged_pin_strictness(proxlb_config, guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['tags'])
+                    guests['guests'][guest['name']]['node_ignore_list'] = Tags.collect_node_ignore_list(guests['guests'][guest['name']]['tags'], guests['guests'][guest['name']]['pools'], nodes, proxlb_config)
+                    guests['guests'][guest['name']]['effective_pinning_mode'] = Pools.get_effective_pinning_mode(
+                        proxlb_config,
+                        guests['guests'][guest['name']]['pools'],
+                        guests['guests'][guest['name']]['tags'],
+                    )
+                    guests['guests'][guest['name']]['effective_affinity_mode'] = Pools.get_effective_affinity_mode(
+                        proxlb_config,
+                        guests['guests'][guest['name']]['pools'],
+                        guests['guests'][guest['name']]['tags'],
+                    )
                     guests['guests'][guest['name']]['type'] = 'vm'
 
                     logger.debug(f"Resources of Guest {guest['name']} (type VM) added: {guests['guests'][guest['name']]}")
@@ -150,7 +161,18 @@ class Guests:
                     guests['guests'][guest['name']]['anti_affinity_groups'] = Tags.get_anti_affinity_groups(guests['guests'][guest['name']]['tags'], guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['ha_rules'], proxlb_config)
                     guests['guests'][guest['name']]['ignore'] = Tags.get_ignore(guests['guests'][guest['name']]['tags'])
                     guests['guests'][guest['name']]['node_relationships'] = Tags.get_node_relationships(guests['guests'][guest['name']]['tags'], nodes, guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['ha_rules'], proxlb_config)
-                    guests['guests'][guest['name']]['node_relationships_strict'] = Pools.get_pool_node_affinity_strictness(proxlb_config, guests['guests'][guest['name']]['pools'])
+                    guests['guests'][guest['name']]['node_relationships_strict'] = Pools.get_merged_pin_strictness(proxlb_config, guests['guests'][guest['name']]['pools'], guests['guests'][guest['name']]['tags'])
+                    guests['guests'][guest['name']]['node_ignore_list'] = Tags.collect_node_ignore_list(guests['guests'][guest['name']]['tags'], guests['guests'][guest['name']]['pools'], nodes, proxlb_config)
+                    guests['guests'][guest['name']]['effective_pinning_mode'] = Pools.get_effective_pinning_mode(
+                        proxlb_config,
+                        guests['guests'][guest['name']]['pools'],
+                        guests['guests'][guest['name']]['tags'],
+                    )
+                    guests['guests'][guest['name']]['effective_affinity_mode'] = Pools.get_effective_affinity_mode(
+                        proxlb_config,
+                        guests['guests'][guest['name']]['pools'],
+                        guests['guests'][guest['name']]['tags'],
+                    )
                     guests['guests'][guest['name']]['type'] = 'ct'
 
                     logger.debug(f"Resources of Guest {guest['name']} (type CT) added: {guests['guests'][guest['name']]}")

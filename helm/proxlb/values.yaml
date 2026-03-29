@@ -37,6 +37,10 @@ configmap:
     balancing:
       enable: True
       enforce_affinity: False
+      # Pin moves: load-based (default) vs always fixing pin violations without hottest-node gate; pool > tag > default
+      pinning_mode: load-based
+      # Affinity + anti-affinity vs hottest-node gate (same precedence as pinning_mode)
+      affinity_mode: load-based
       parallel: False
       # If running parallel job, you can define
       # the amount of prallel jobs (default: 5)
@@ -49,6 +53,7 @@ configmap:
       balanciness: 5
       method: memory
       mode: used
+      # tags: { }  # Optional: balancing.tags — pin/ignore/affinity by Proxmox guest tag name
     service:
       daemon: True
       schedule:

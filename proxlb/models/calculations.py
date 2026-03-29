@@ -11,8 +11,9 @@ __license__ = "GPL-3.0"
 
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from utils.logger import SystemdLogger
+from models.pools import Pools, PINNING_MODE_ALWAYS
 
 logger = SystemdLogger()
 
@@ -267,7 +268,12 @@ class Calculations:
         logger.debug("Finished: get_balanciness.")
 
     @staticmethod
-    def get_most_free_node(proxlb_data: Dict[str, Any], return_node: bool = False, guest_node_relation_list: list = []) -> Dict[str, Any]:
+    def get_most_free_node(
+        proxlb_data: Dict[str, Any],
+        return_node: bool = False,
+        guest_node_relation_list: Optional[List[str]] = None,
+        guest_ignore_nodes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Get the name of the Proxmox node in the cluster with the most free resources based on
         the user defined method (e.g.: memory) and mode (e.g.: used).
@@ -278,6 +284,7 @@ class Calculations:
                                 assignments.
             guest_node_relation_list (list): A list of nodes that have a tag on the given
                                              guest relationship for pinning.
+            guest_ignore_nodes (list): Optional node names to exclude (balancing.tags / pool ignore).
 
         Returns:
             Dict[str, Any]: Updated meta data section of the node with the most free resources that should
@@ -288,20 +295,25 @@ class Calculations:
 
         # insure that we don't error out if "nodes" key is missing
         nodes_dict = proxlb_data.get("nodes", {})
+        relation = guest_node_relation_list or []
+        ignore_set = set(guest_ignore_nodes or [])
 
         # Filter and include nodes that given by a relationship between guest and node. This is only
         # used if the guest has a relationship to a node defined by "pin" tags.
-        if len(guest_node_relation_list) > 0:
+        if len(relation) > 0:
             filtered_nodes = [
                 node
                 for node in nodes_dict.values()
-                if node["name"] in guest_node_relation_list and not node["maintenance"]
+                if node["name"] in relation and not node["maintenance"]
             ]
         else:
             # Filter and exclude nodes only that are in maintenance mode
             filtered_nodes = [
                 node for node in nodes_dict.values() if not node["maintenance"]
             ]
+
+        if ignore_set:
+            filtered_nodes = [n for n in filtered_nodes if n["name"] not in ignore_set]
 
         if not filtered_nodes:
             # log an error if filtered_nodes is empty
@@ -382,13 +394,83 @@ class Calculations:
             # Update the node with the most free nodes which is
             # not in a maintenance
             proxlb_data["meta"]["balancing"]["balance_next_guest"] = guest_name
-            if Calculations.get_most_free_node(proxlb_data):
+            guest_ignore = proxlb_data["guests"][guest_name].get("node_ignore_list") or []
+            if Calculations.get_most_free_node(proxlb_data, False, [], guest_ignore):
                 Calculations.update_node_resources(proxlb_data)
             else:
                 logger.warning(f"Warning: Could not find a suitable node to relocate guest {guest_name} from a maintenance node.")
             logger.warning(f"Warning: Balancing may not be perfect because guest {guest_name} was located on a node which is in maintenance mode.")
 
         logger.debug("Finished: relocate_guests_on_maintenance_nodes.")
+
+    @staticmethod
+    def guest_has_pin_violation(proxlb_data: Dict[str, Any], guest_name: str) -> bool:
+        """
+        True if the guest has non-empty node_relationships (pin allow-list) and
+        node_current is not in that set.
+        """
+        rel = proxlb_data["guests"][guest_name].get("node_relationships") or []
+        if not rel:
+            return False
+        current = proxlb_data["guests"][guest_name]["node_current"]
+        return current not in set(rel)
+
+    @staticmethod
+    def guest_has_affinity_mode_violation(proxlb_data: Dict[str, Any], guest_name: str) -> bool:
+        """
+        True if affinity or anti-affinity rules are broken for this guest (same basis as validate_affinity_map).
+        """
+        ok_aff = Calculations.validate_current_affinity(proxlb_data, guest_name)
+        ok_anti = Calculations.validate_current_anti_affinity(proxlb_data, guest_name)
+        return not (ok_aff and ok_anti)
+
+    @staticmethod
+    def _skip_hottest_node_gate(proxlb_data: Dict[str, Any], guest_name: str) -> bool:
+        """Bypass hottest-node gate for pin violation or affinity/anti-affinity violation when mode is always."""
+        guest_meta = proxlb_data["guests"][guest_name]
+        eff_pin = guest_meta.get("effective_pinning_mode") or Pools.get_effective_pinning_mode(
+            proxlb_data["meta"],
+            guest_meta.get("pools") or [],
+            guest_meta.get("tags") or [],
+        )
+        if eff_pin == PINNING_MODE_ALWAYS and Calculations.guest_has_pin_violation(proxlb_data, guest_name):
+            logger.debug(
+                f"Pinning mode {PINNING_MODE_ALWAYS} with pin violation: "
+                f"bypassing hottest-node gate for guest {guest_name}."
+            )
+            return True
+        eff_aff = guest_meta.get("effective_affinity_mode") or Pools.get_effective_affinity_mode(
+            proxlb_data["meta"],
+            guest_meta.get("pools") or [],
+            guest_meta.get("tags") or [],
+        )
+        if eff_aff == PINNING_MODE_ALWAYS and Calculations.guest_has_affinity_mode_violation(
+            proxlb_data, guest_name
+        ):
+            logger.debug(
+                f"Affinity mode {PINNING_MODE_ALWAYS} with affinity/anti-affinity violation: "
+                f"bypassing hottest-node gate for guest {guest_name}."
+            )
+            return True
+        return False
+
+    @staticmethod
+    def _affinity_group_has_placement_violation_priority(
+        proxlb_data: Dict[str, Any], group_name: str
+    ) -> bool:
+        """True if this affinity group should be processed first (always mode + placement violation)."""
+        for gn in proxlb_data["groups"]["affinity"][group_name]["guests"]:
+            gm = proxlb_data["guests"][gn]
+            eff_aff = gm.get("effective_affinity_mode") or Pools.get_effective_affinity_mode(
+                proxlb_data["meta"],
+                gm.get("pools") or [],
+                gm.get("tags") or [],
+            )
+            if eff_aff != PINNING_MODE_ALWAYS:
+                continue
+            if Calculations.guest_has_affinity_mode_violation(proxlb_data, gn):
+                return True
+        return False
 
     @staticmethod
     def relocate_guests(proxlb_data: Dict[str, Any]):
@@ -431,11 +513,14 @@ class Calculations:
             else:
                 logger.debug("Smaller guests will be processed first. (Sorting ascending by memory used)")
 
-            # Sort affinity groups by number of guests to avoid creating more migrations than needed
-            # because of affinity-groups and use afterwards memory for defining smaller/larger guests
+            # Sort affinity groups: groups with affinity_mode always + placement violation first,
+            # then by size / memory (same as before).
             sorted_guest_usage_groups = sorted(
                 proxlb_data["groups"]["affinity"],
                 key=lambda g: (
+                    0
+                    if Calculations._affinity_group_has_placement_violation_priority(proxlb_data, g)
+                    else 1,
                     proxlb_data["groups"]["affinity"][g]["counter"],
                     -proxlb_data["groups"]["affinity"][g]["memory_used"]
                     if larger_first
@@ -462,7 +547,9 @@ class Calculations:
                     mode = proxlb_data["meta"]["balancing"].get("mode", "used")
                     highest_node = max(proxlb_data["nodes"].values(), key=lambda n: n[f"{method}_used_percent"])
 
-                    if highest_node["name"] != source_node:
+                    skip_hottest = Calculations._skip_hottest_node_gate(proxlb_data, guest_name)
+
+                    if not skip_hottest and highest_node["name"] != source_node:
                         logger.debug(f"Stopping relocation for guest {guest_name}: source node {source_node} is no longer the most loaded node.")
                         break
 
@@ -516,6 +603,7 @@ class Calculations:
         None
         """
         logger.debug("Starting: val_anti_affinity.")
+        guest_ignore = set(proxlb_data["guests"][guest_name].get("node_ignore_list") or [])
         # Start by iterating over all defined anti-affinity groups
         for group_name in proxlb_data["groups"]["anti_affinity"].keys():
 
@@ -534,7 +622,7 @@ class Calculations:
                         # used nodes for the current anti-affinity group
                         if node_name not in proxlb_data["groups"]["anti_affinity"][group_name]["used_nodes"]:
 
-                            if not proxlb_data["nodes"][node_name]["maintenance"]:
+                            if not proxlb_data["nodes"][node_name]["maintenance"] and node_name not in guest_ignore:
                                 # If the node has not been used yet, we assign this node to the guest
                                 proxlb_data["meta"]["balancing"]["balance_next_node"] = node_name
                                 proxlb_data["groups"]["anti_affinity"][group_name]["used_nodes"].append(node_name)
@@ -570,7 +658,8 @@ class Calculations:
             logger.debug(f"Guest '{guest_name}' has relationships defined to node(s): {','.join(proxlb_data['guests'][guest_name]['node_relationships'])}. Pinning to node.")
 
             # Get the list of nodes that are defined as relationship for the guest
-            guest_node_relation_list = proxlb_data["guests"][guest_name]["node_relationships"]
+            guest_node_relation_list = list(proxlb_data["guests"][guest_name]["node_relationships"])
+            guest_ignore = proxlb_data["guests"][guest_name].get("node_ignore_list") or []
 
             # Validate if strict relationships are defined. If not, we prefer
             # the most free node in addition to the relationship list.
@@ -578,13 +667,13 @@ class Calculations:
                 logger.debug(f"Guest '{guest_name}' has strict node relationships defined. Only nodes in the relationship list will be considered for pinning.")
             else:
                 logger.debug(f"Guest '{guest_name}' has non-strict node relationships defined. Prefering nodes in the relationship list for pinning.")
-                Calculations.get_most_free_node(proxlb_data)
+                Calculations.get_most_free_node(proxlb_data, False, [], guest_ignore)
                 most_free_node = proxlb_data["meta"]["balancing"]["balance_next_node"]
                 if most_free_node:
                     guest_node_relation_list.append(most_free_node)
 
             # Get the most free node from the relationship list, or the most free node overall
-            Calculations.get_most_free_node(proxlb_data, False, guest_node_relation_list)
+            Calculations.get_most_free_node(proxlb_data, False, guest_node_relation_list, guest_ignore)
 
             # Validate if the specified node name is really part of the cluster
             if proxlb_data["meta"]["balancing"]["balance_next_node"] in proxlb_data["nodes"].keys():

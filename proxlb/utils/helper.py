@@ -16,7 +16,7 @@ import sys
 import time
 import utils.version
 from utils.logger import SystemdLogger
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from types import FrameType
 
 logger = SystemdLogger()

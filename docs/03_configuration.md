@@ -170,6 +170,24 @@ You can also repeat this step multiple times for different node names to create 
 
 **Note:** The given node names from the tag are validated. This means, ProxLB validated if the given node name is really part of the cluster. In case of a wrongly defined or unavailable node name it continous to use the regular processes to make sure the guest keeps running.
 
+#### `pinning_mode` (balancing, tags, pools)
+
+`balancing.pinning_mode` controls how pin placement interacts with load-based relocation (default: `load-based`):
+
+* **`load-based`:** Pin corrections follow the same path as other moves: guests are only considered from the cluster’s most-loaded node (for the configured `method` / `mode`), so a guest that violates pin rules but sits on a cooler node may not be moved until load triggers apply.
+* **`always`:** If a guest has a pin constraint and is on a **disallowed** node (pin violation), ProxLB may assign a target among allowed nodes **without** requiring the guest’s current node to be the hottest.
+
+You may set `pinning_mode` on `balancing.tags.<tag>` or `balancing.pools.<pool>` as well. **Precedence is fixed** (not user-configurable): **pool overrides tag overrides the balancing default**. Among several tags or several pools, if any sets `always`, that scope’s aggregate is `always`; otherwise `load-based`. `enforce_pinning` still controls whether the relocation pass runs when the cluster is otherwise balanced; `pinning_mode` only affects the hottest-node gate for pin violations.
+
+#### `affinity_mode` (balancing, tags, pools)
+
+`balancing.affinity_mode` uses the **same values and precedence** as `pinning_mode` (`load-based` default; optional overrides on tags and pools). It controls the hottest-node gate for **affinity and anti-affinity** placement together:
+
+* **`load-based`:** Same as today: relocation for fixing group placement is still driven from the most-loaded node path.
+* **`always`:** If either [`validate_current_affinity`](proxlb/models/calculations.py) or [`validate_current_anti_affinity`](proxlb/models/calculations.py) would fail for this guest (split affinity group, two anti-affinity members on the same node, or related maintenance checks), ProxLB may run placement logic **without** requiring the guest’s current node to be the hottest.
+
+`enforce_affinity` still gates whether the relocation pass runs when the cluster is otherwise balanced; `affinity_mode` only affects the hottest-node bypass for those validators.
+
 ### API Loadbalancing
 ProxLB supports API loadbalancing, where one or more host objects can be defined as a list. This ensures, that you can even operator ProxLB without further changes when one or more nodes are offline or in a maintenance. When defining multiple hosts, the first reachable one will be picked. You can speficy custom ports in the list. There are 4 ways of defining hosts with ports:
 1. Hostname of IPv4 without port (in this case the default 8006 will be used)

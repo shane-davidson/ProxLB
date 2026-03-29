@@ -15,6 +15,7 @@ from typing import List
 from typing import Dict, Any
 from utils.logger import SystemdLogger
 from utils.helper import Helper
+from utils.host_filter import merge_pin_ignore
 
 logger = SystemdLogger()
 
@@ -69,9 +70,11 @@ class Tags:
         if guest_type == 'vm':
             guest_config = proxmox_api.nodes(node).qemu(guest_id).config.get()
             tags = guest_config.get("tags", [])
-        if guest_type == 'ct':
+        elif guest_type == 'ct':
             guest_config = proxmox_api.nodes(node).lxc(guest_id).config.get()
             tags = guest_config.get("tags", [])
+        else:
+            tags = []
 
         if isinstance(tags, str):
             tags = tags.split(";")
@@ -126,6 +129,15 @@ class Tags:
                     logger.debug(f"Adding affinity group for ha-rule {ha_rule}.")
                     affinity_tags.append(ha_rule['rule'])
 
+        # balancing.tags config (type affinity)
+        tags_cfg = (proxlb_config.get('balancing') or {}).get('tags') or {}
+        if len(tags) > 0:
+            for tag in tags:
+                rule = tags_cfg.get(tag)
+                if isinstance(rule, dict) and rule.get('type') == 'affinity':
+                    logger.debug(f"Adding affinity group for balancing.tags entry {tag}.")
+                    affinity_tags.append(tag)
+
         logger.debug("Finished: get_affinity_groups.")
         return affinity_tags
 
@@ -176,6 +188,15 @@ class Tags:
                     logger.debug(f"Adding anti-affinity group for ha-rule {ha_rule}.")
                     anti_affinity_tags.append(ha_rule['rule'])
 
+        # balancing.tags config (type anti-affinity)
+        tags_cfg = (proxlb_config.get('balancing') or {}).get('tags') or {}
+        if len(tags) > 0:
+            for tag in tags:
+                rule = tags_cfg.get(tag)
+                if isinstance(rule, dict) and rule.get('type') == 'anti-affinity':
+                    logger.debug(f"Adding anti-affinity group for balancing.tags entry {tag}.")
+                    anti_affinity_tags.append(tag)
+
         logger.debug("Finished: get_anti_affinity_groups.")
         return anti_affinity_tags
 
@@ -210,7 +231,7 @@ class Tags:
         return ignore_tag
 
     @staticmethod
-    def get_node_relationships(tags: List[str], nodes: Dict[str, Any], pools: List[str], ha_rules: List[str], proxlb_config: Dict[str, Any]) -> str:
+    def get_node_relationships(tags: List[str], nodes: Dict[str, Any], pools: List[str], ha_rules: List[str], proxlb_config: Dict[str, Any]) -> List[str]:
         """
         Get a node relationship tag for a guest from the Proxmox cluster by the API to pin
         a guest to a node or by defined pools from ProxLB configuration.
@@ -226,12 +247,14 @@ class Tags:
             proxlb_config (Dict): A dict holding the ProxLB configuration.
 
         Returns:
-            Str: The related hypervisor node name(s).
+            List[str]: Hypervisor node name(s) allowed for pinning this guest.
         """
         logger.debug("Starting: get_node_relationships.")
         node_relationship_tags = []
+        pin_lists_tag = []
+        tags_cfg = (proxlb_config.get('balancing') or {}).get('tags') or {}
 
-        # Tag based node relationship
+        # Tag based node relationship (plb_pin_*)
         if len(tags) > 0:
             logger.debug("Validating node pinning by tags.")
             for tag in tags:
@@ -245,6 +268,14 @@ class Tags:
                         node_relationship_tags.append(node_relationship_tag)
                     else:
                         logger.warning(f"Tag {node_relationship_tag} is invalid! Defined node does not exist in the cluster. Not applying pinning.")
+                elif tag in tags_cfg and isinstance(tags_cfg[tag], dict):
+                    rule = tags_cfg[tag]
+                    if rule.get("pin") and rule.get("ignore"):
+                        logger.warning(f"balancing.tags[{tag}] defines both pin and ignore; skipping.")
+                    elif rule.get("pin"):
+                        validated = [n for n in rule["pin"] if Helper.validate_node_presence(n, nodes)]
+                        if validated:
+                            pin_lists_tag.append(validated)
 
         # Pool based node relationship
         if len(pools) > 0:
@@ -279,5 +310,51 @@ class Tags:
                     else:
                         logger.debug(f"ha-rule {ha_rule['rule']} is of type anti-affinity. Skipping node relationship addition.")
 
+        tag_pin_set, _ = merge_pin_ignore(pin_lists_tag, [])
+        node_relationship_union_set = set(node_relationship_tags)
+        if tag_pin_set is not None:
+            if node_relationship_union_set:
+                node_relationship_union_set &= tag_pin_set
+            else:
+                node_relationship_union_set = tag_pin_set
+            if not node_relationship_union_set:
+                logger.warning("Node placement: no hypervisor nodes satisfy combined pin constraints (balancing.tags pin intersection with other pin sources).")
+
         logger.debug("Finished: get_node_relationships.")
-        return node_relationship_tags
+        return list(node_relationship_union_set)
+
+    @staticmethod
+    def collect_node_ignore_list(tags: List[str], pools: List[str], nodes: Dict[str, Any], proxlb_config: Dict[str, Any]) -> List[str]:
+        """
+        Union of node names to exclude from placement: balancing.tags ignore entries and
+        balancing.pools[*].ignore for pools the guest belongs to.
+        """
+        logger.debug("Starting: collect_node_ignore_list.")
+        ignored_names = []
+        balancing = proxlb_config.get("balancing") or {}
+        tags_cfg = balancing.get("tags") or {}
+        for tag in tags or []:
+            if tag not in tags_cfg:
+                continue
+            rule = tags_cfg[tag]
+            if not isinstance(rule, dict):
+                continue
+            if rule.get("pin") and rule.get("ignore"):
+                continue
+            for node in rule.get("ignore") or []:
+                if Helper.validate_node_presence(node, nodes):
+                    ignored_names.append(node)
+                else:
+                    logger.warning(f"balancing.tags ignore node {node} is not in the cluster. Skipping.")
+        pools_cfg = balancing.get("pools") or {}
+        for pool in pools or []:
+            if pool not in pools_cfg:
+                continue
+            for node in pools_cfg[pool].get("ignore") or []:
+                if Helper.validate_node_presence(node, nodes):
+                    ignored_names.append(node)
+                else:
+                    logger.warning(f"balancing.pools[{pool}] ignore node {node} is not in the cluster. Skipping.")
+        out = sorted(set(ignored_names))
+        logger.debug("Finished: collect_node_ignore_list.")
+        return out

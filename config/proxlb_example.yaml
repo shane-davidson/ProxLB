@@ -20,6 +20,13 @@ balancing:
   enable: True
   enforce_affinity: False
   enforce_pinning: False
+  # Pin relocation vs load balancing: 'load-based' (default) ties pin moves to the hottest-node
+  # path; 'always' can fix pin violations (guest off allowed nodes) even when not on the hottest node.
+  # Optional: pinning_mode on balancing.tags.<tag> or balancing.pools.<pool> — pool overrides tag
+  # overrides this value; within tags/pools, 'always' wins over 'load-based'.
+  pinning_mode: load-based
+  # Affinity + anti-affinity placement vs hottest node (same precedence as pinning_mode).
+  affinity_mode: load-based
   parallel: False
   # If running parallel job, you can define
   # the amount of prallel jobs (default: 5)
@@ -77,6 +84,22 @@ balancing:
         - virt66
         - virt77
       strict: False                   # Disable strict mode of node pinning for this pool
+      # pinning_mode: load-based     # Optional: 'always' | 'load-based' (overrides tag + default)
+      # affinity_mode: load-based    # Optional: same precedence as pinning_mode
+      ignore: []                      # Optional: node names excluded for guests in this pool
+  tags:                               # Optional: rules keyed by exact Proxmox guest tag names
+    myapp:
+      type: affinity                   # Optional: affinity / anti-affinity group for this tag
+      pin:                             # Mutually exclusive with ignore on the same tag
+        - virt66
+      strict: True
+      # pinning_mode: always           # Optional: 'always' | 'load-based'
+      # affinity_mode: always          # Optional: affinity + anti-affinity hottest-node bypass
+      priority: 10
+    batch:
+      ignore:
+        - virt77
+      priority: 0
 
 service:
   daemon: True

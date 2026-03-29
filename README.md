@@ -268,6 +268,8 @@ The following options can be set in the configuration file `proxlb.yaml`:
 |  | enable |  | True | `Bool` | Enables the guest balancing.|
 |  | enforce_affinity |  | False | `Bool` | Enforcing affinity/anti-affinity rules but balancing might become worse. |
 |  | enforce_pinning |  | False | `Bool` | Enforcing pinning rules but balancing might become worse. |
+|  | pinning_mode |  | load-based | `Str` | How pin corrections interact with load-based relocation: `load-based` (default) only moves pinned guests from the most-loaded node; `always` allows fixing a **pin violation** (guest not on an allowed node) even when its current node is not the hottest. Optional overrides per `balancing.tags.<tag>` and `balancing.pools.<pool>`. **Scope order is fixed** (not configurable): pool overrides tag overrides this default; within tags or pools, `always` dominates `load-based`. |
+|  | affinity_mode |  | load-based | `Str` | Same values and scope rules as `pinning_mode`, but for **affinity and anti-affinity** placement: `load-based` keeps the hottest-node gate; `always` can fix a violation (split affinity group, anti-affinity collision on same node, or related maintenance checks per validators) even when the guest is not on the hottest node. |
 |  | parallel |  | False | `Bool` | If guests should be moved in parallel or sequentially.|
 |  | parallel_jobs |  | 5 | `Int` | The amount if parallel jobs when migrating guests. (default: `5`)|
 |  | live |  | True | `Bool` | If guests should be moved live or shutdown.|
@@ -320,6 +322,8 @@ balancing:
   enable: True
   enforce_affinity: False
   enforce_pinning: False
+  pinning_mode: load-based
+  affinity_mode: load-based
   parallel: False
   live: True
   with_local_disks: True

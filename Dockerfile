@@ -7,7 +7,7 @@ LABEL org.label-schema.name="ProxLB"
 LABEL org.label-schema.description="ProxLB - An advanced load balancer for Proxmox clusters."
 LABEL org.label-schema.vendor="gyptazy"
 LABEL org.label-schema.url="https://proxlb.de"
-LABEL org.label-schema.vcs-url="https://github.com/gyptazy/ProxLB"
+LABEL org.label-schema.vcs-url="https://github.com/credativ/ProxLB"
 
 # --- Step 1 (root): system deps, user, dirs ---
 RUN apk add --no-cache python3 py3-pip \
